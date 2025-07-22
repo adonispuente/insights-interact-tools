@@ -9,14 +9,16 @@ import { execSync } from 'child_process';
 const filesToMonitor = [
   {
     path: 'data/services/insights/advisor/deploy.yml',
-    githubRepo: 'https://github.com/RedHatInsights/insights-advisor-frontend.git',
+    githubRepo:
+      'https://github.com/RedHatInsights/insights-advisor-frontend.git',
     workflowTrigger: 'workflow_dispatch',
     appName: 'advisor-frontend',
     workflowFileName: 'webpack.yml'
   },
   {
     path: 'data/services/insights/host-inventory/deploy-clowder.yml',
-    githubRepo: 'https://github.com/RedHatInsights/insights-inventory-frontend.git',
+    githubRepo:
+      'https://github.com/RedHatInsights/insights-inventory-frontend.git',
     workflowTrigger: 'workflow_dispatch',
     appName: 'host-inventory-frontend',
     workflowFileName: 'main.yml'
@@ -51,7 +53,8 @@ const filesToMonitor = [
   },
   {
     path: 'data/services/insights/remediations/deploy-clowder.yml',
-    githubRepo: 'https://github.com/RedHatInsights/insights-remediations-frontend.git',
+    githubRepo:
+      'https://github.com/RedHatInsights/insights-remediations-frontend.git',
     workflowTrigger: 'workflow_dispatch',
     appName: 'remediations',
     workflowFileName: 'sentry.yml'
@@ -65,7 +68,8 @@ const filesToMonitor = [
   },
   {
     path: 'data/services/insights/malware-detection/deploy.yml',
-    githubRepo: 'https://github.com/RedHatInsights/malware-detection-frontend.git',
+    githubRepo:
+      'https://github.com/RedHatInsights/malware-detection-frontend.git',
     workflowTrigger: 'workflow_dispatch',
     appName: 'malware-detection-frontend',
     workflowFileName: 'sentry.yml'
@@ -116,13 +120,18 @@ const filesToMonitor = [
 
 const repoPath = '/tmp/app-interface';
 const repoUrl = 'https://gitlab.cee.redhat.com/service/app-interface.git';
-const hashesFilePath = `${process.env.CI_PROJECT_DIR || '.'}/commit_hashes.json`;
+const hashesFilePath = `${
+  process.env.CI_PROJECT_DIR || '.'
+}/commit_hashes.json`;
 
 async function cloneRepo (repoUrl, clonePath) {
   try {
     if (!fs.existsSync(clonePath)) {
       console.log(`Cloning repository: ${repoUrl}`);
-      execSync(`git -c http.sslVerify=false clone --depth 1 ${repoUrl} ${clonePath}`, { stdio: 'inherit' });
+      execSync(
+        `git -c http.sslVerify=false clone --depth 1 ${repoUrl} ${clonePath}`,
+        { stdio: 'inherit' }
+      );
       console.log('Repository cloned successfully.');
     } else {
       console.log('Repository already exists. Pulling latest changes.');
@@ -144,12 +153,17 @@ async function buildInsightsChromeLocally (commitHash) {
       execSync(`git clone ${chromeRepoUrl} ${localPath}`, { stdio: 'inherit' });
     } else {
       console.log('Repository already exists. Pulling latest changes.');
-      execSync(`git reset --hard origin/main && git fetch --all && cd ${localPath} `, { stdio: 'inherit' });
+      execSync(
+        `git reset --hard origin/main && git fetch --all && cd ${localPath} `,
+        { stdio: 'inherit' }
+      );
     }
 
     // Checkout commit
     console.log(`Checking out commit hash: ${commitHash}`);
-    execSync(`cd ${localPath} && git checkout ${commitHash}`, { stdio: 'inherit' });
+    execSync(`cd ${localPath} && git checkout ${commitHash}`, {
+      stdio: 'inherit'
+    });
 
     // Install deps
     console.log('Installing dependencies...');
@@ -157,22 +171,71 @@ async function buildInsightsChromeLocally (commitHash) {
 
     // Build the project with Sentry environment variables
     console.log('Building the project...');
-    execSync(
-      `cd ${localPath} && npm run build`,
-      {
-        stdio: 'inherit',
-        env: {
-          ...process.env,
-          SENTRY_RELEASE: `${commitHash}`,
-          SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN_CHROME,
-          SENTRY_ORG: 'red-hat-it',
-          SENTRY_PROJECT: 'cpin-001-insights',
-          ENABLE_SENTRY: true
-        }
+    execSync(`cd ${localPath} && npm run build`, {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        SENTRY_RELEASE: `${commitHash}`,
+        SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN_CHROME,
+        SENTRY_ORG: 'red-hat-it',
+        SENTRY_PROJECT: 'cpin-001-insights',
+        ENABLE_SENTRY: true
       }
-    );
+    });
 
     console.log('Build completed successfully.');
+
+    // After the build step in buildInsightsChromeLocally
+
+    // 1. Install Sentry CLI
+    console.log('Installing Sentry CLI...');
+    execSync('npm install -g @sentry/cli', { stdio: 'inherit' });
+
+    // 2. Upload sourcemaps to Sentry for each project
+    const projects = [
+      'advisor-rhel',
+      'vulnerability-rhel',
+      'compliance-rhel',
+      'remediations-rhel',
+      'dashboard-rhel',
+      'malware-rhel',
+      'ocp-advisor',
+      'ocp-vulnerability',
+      'patchman-rhel',
+      'registration-assistant-rhel',
+      'sed-frontend-rhc',
+      'tasks-rhel',
+      'policies-rhel',
+      'inventory-rhel'
+    ];
+
+    for (const project of projects) {
+      console.log(`Uploading sourcemaps to ${project}...`);
+      try {
+        execSync(
+          `sentry-cli releases files "${commitHash}" upload-sourcemaps ./build/js ` +
+            '--org red-hat-it ' +
+            `--project "${project}" ` +
+            `--release "${commitHash}" ` +
+            `--dist "${commitHash}" ` +
+            '--url-prefix \'~/insights/chrome/js\' ' +
+            '--validate',
+          {
+            stdio: 'inherit',
+            cwd: localPath,
+            env: {
+              ...process.env,
+              SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN_CHROME
+            }
+          }
+        );
+      } catch (err) {
+        console.error(
+          `Error uploading sourcemaps for ${project}:`,
+          err.message
+        );
+      }
+    }
   } catch (err) {
     console.error('Error building insights-chrome locally:', err.message);
     process.exit(1);
@@ -195,7 +258,11 @@ function extractProdStableRef (filePath, appName) {
         inProdStableSection = false;
       }
 
-      if (inAppSection && trimmedLine.startsWith('- name:') && !trimmedLine.includes(appName)) {
+      if (
+        inAppSection &&
+        trimmedLine.startsWith('- name:') &&
+        !trimmedLine.includes(appName)
+      ) {
         inAppSection = false;
         inProdStableSection = false;
       }
@@ -204,7 +271,11 @@ function extractProdStableRef (filePath, appName) {
         inProdStableSection = true;
       }
 
-      if (inAppSection && inProdStableSection && trimmedLine.startsWith('ref:')) {
+      if (
+        inAppSection &&
+        inProdStableSection &&
+        trimmedLine.startsWith('ref:')
+      ) {
         const potentialHash = trimmedLine.split('ref:')[1].trim();
         if (/^[a-f0-9]{40}$/.test(potentialHash)) {
           console.log(`Valid commit hash found: ${potentialHash}`);
@@ -212,10 +283,15 @@ function extractProdStableRef (filePath, appName) {
         }
       }
     }
-    console.error(`No valid commit hash found in "Prod Stable" section for app: ${appName}`);
+    console.error(
+      `No valid commit hash found in "Prod Stable" section for app: ${appName}`
+    );
     return null;
   } catch (err) {
-    console.error(`Error extracting ref for app ${appName} from ${filePath}:`, err.message);
+    console.error(
+      `Error extracting ref for app ${appName} from ${filePath}:`,
+      err.message
+    );
     return null;
   }
 }
@@ -239,14 +315,18 @@ function saveHashes (hashes) {
   console.log(`Saving updated hashes to ${hashesFilePath}`);
   fs.writeFileSync(hashesFilePath, JSON.stringify(hashes, null, 2));
 
-  console.log('Exporting updated hashes to COMMIT_HASHES_JSON environment variable.');
+  console.log(
+    'Exporting updated hashes to COMMIT_HASHES_JSON environment variable.'
+  );
   console.log(JSON.stringify(hashes));
 }
 
 function triggerGitHubWorkflow (repoUrl, commitHash, workflowFileName) {
   const repoName = repoUrl.split('/').slice(-2).join('/').replace('.git', '');
   try {
-    console.log(`Triggering workflow for ${repoUrl} with commit hash ${commitHash} using workflow file ${workflowFileName}`);
+    console.log(
+      `Triggering workflow for ${repoUrl} with commit hash ${commitHash} using workflow file ${workflowFileName}`
+    );
     execSync(
       `curl -X POST -H "Accept: application/vnd.github+json" \
          -H "Authorization: Bearer ${process.env.GITHUB_TOKEN}" \
@@ -254,9 +334,14 @@ function triggerGitHubWorkflow (repoUrl, commitHash, workflowFileName) {
          -d '{"ref": "master", "inputs": {"commit_hash": "${commitHash}"}}'`,
       { stdio: 'inherit' }
     );
-    console.log(`Workflow triggered for ${repoUrl} with commit hash ${commitHash}`);
+    console.log(
+      `Workflow triggered for ${repoUrl} with commit hash ${commitHash}`
+    );
   } catch (err) {
-    console.error(`Error triggering GitHub workflow for ${repoUrl} with file ${workflowFileName}:`, err.message);
+    console.error(
+      `Error triggering GitHub workflow for ${repoUrl} with file ${workflowFileName}:`,
+      err.message
+    );
   }
 }
 
@@ -265,7 +350,12 @@ async function main () {
 
   const hashes = loadHashes();
 
-  for (const { path, appName, githubRepo, workflowFileName } of filesToMonitor) {
+  for (const {
+    path,
+    appName,
+    githubRepo,
+    workflowFileName
+  } of filesToMonitor) {
     const filePath = `${repoPath}/${path}`;
 
     if (!fs.existsSync(filePath)) {
